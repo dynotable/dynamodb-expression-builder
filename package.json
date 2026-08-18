@@ -1,6 +1,6 @@
 {
   "name": "dynamodb-expression-builder",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "DynamoDB expression builder and code generator: build update, condition, filter and key condition expressions with automatic ExpressionAttributeNames/Values aliasing, then emit runnable code for the JavaScript SDK v3, AWS CLI, boto3, Java, Go, .NET, PartiQL and dynamodb-toolbox. Zero dependencies.",
   "keywords": [
     "dynamodb",

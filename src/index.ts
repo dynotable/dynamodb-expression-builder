@@ -23,7 +23,8 @@ export type {
   SetOperation,
   SetType,
   TypedValue,
-  UpdateAction
+  UpdateAction,
+  UpdateActionKind
 } from './types';
 export {elementType, isSetType, makeTypedValue, SET_TYPES} from './types';
 
