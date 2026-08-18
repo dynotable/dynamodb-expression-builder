@@ -420,7 +420,6 @@ function emitRustProgram(request: CanonicalRequest, paginate: boolean): string {
 
 function emitDocClientProgram(request: CanonicalRequest, paginate: boolean): string {
   const command = docClientCommandName(request.operation);
-  const params = renderDocClientParams(request, '');
   if (!paginate) {
     return [
       'import { DynamoDBClient } from "@aws-sdk/client-dynamodb";',
