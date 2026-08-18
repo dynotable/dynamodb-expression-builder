@@ -1,0 +1,35 @@
+name: Release
+
+# Publishes to npm when a version tag (v*) is pushed. Uses npm Trusted
+# Publishing (OIDC) — no npm token is stored in this repository. The trusted
+# publisher must be configured on npmjs.com for this package (Settings →
+# Trusted Publisher → GitHub Actions, repo dynotable/dynamodb-expression-builder,
+# workflow release.yml). The first-ever publish of the package is manual;
+# every publish after that goes through this workflow with provenance.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+  id-token: write # OIDC for npm Trusted Publishing + provenance
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm check:package
+      - run: npm publish --provenance --access public
