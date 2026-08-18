@@ -1,0 +1,75 @@
+{
+  "name": "dynamodb-expression-builder",
+  "version": "0.1.0",
+  "description": "DynamoDB expression builder and code generator: build update, condition, filter and key condition expressions with automatic ExpressionAttributeNames/Values aliasing, then emit runnable code for the JavaScript SDK v3, AWS CLI, boto3, Java, Go, .NET, PartiQL and dynamodb-toolbox. Zero dependencies.",
+  "keywords": [
+    "dynamodb",
+    "expression",
+    "expression-builder",
+    "update-expression",
+    "condition-expression",
+    "filter-expression",
+    "key-condition-expression",
+    "expressionattributenames",
+    "code-generator",
+    "codegen",
+    "query-builder",
+    "boto3",
+    "aws"
+  ],
+  "license": "MIT",
+  "author": "DynoTable <support@dynotable.com> (https://dynotable.com)",
+  "homepage": "https://dynotable.com/tools/dynamodb-expression-builder",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dynotable/dynamodb-expression-builder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dynotable/dynamodb-expression-builder/issues"
+  },
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "packageManager": "pnpm@10.15.0",
+  "scripts": {
+    "build": "tsdown",
+    "test": "vitest run",
+    "lint": "oxlint src tests",
+    "typecheck": "tsc --noEmit",
+    "check:package": "publint && attw --pack ."
+  },
+  "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.2",
+    "@types/node": "^26.2.0",
+    "oxlint": "^1.35.0",
+    "publint": "^0.3.14",
+    "tsdown": "^0.15.7",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}
