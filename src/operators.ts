@@ -19,6 +19,7 @@ export type WireFilterOperator =
   | 'LT'
   | 'LE'
   | 'CONTAINS'
+  | 'NOT_CONTAINS'
   | 'BEGINS_WITH'
   | 'BETWEEN'
   | 'IN'
@@ -148,6 +149,17 @@ export const FILTER_OPERATORS = [
     label: 'Contains',
     symbol: '∋',
     wireForm: 'CONTAINS',
+    requiresValue: true,
+    requiresValue2: false,
+    typeOptional: false,
+    keyAllowedTypes: [],
+    scanAllowedTypes: ['S', 'B', 'SS', 'NS', 'BS', 'L']
+  },
+  {
+    value: 'not_contains',
+    label: 'Not Contains',
+    symbol: '∌',
+    wireForm: 'NOT_CONTAINS',
     requiresValue: true,
     requiresValue2: false,
     typeOptional: false,

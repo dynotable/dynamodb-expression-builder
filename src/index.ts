@@ -65,6 +65,7 @@ export {emitPartiql} from './emit/partiql';
 export {emitJava, javaClientMethodName, javaRequestClassName} from './emit/java';
 export {emitGo, goClientMethodName, goInputTypeName} from './emit/go';
 export {dotnetClientMethodName, dotnetRequestClassName, emitDotnet} from './emit/dotnet';
+export {emitRust, renderRustAv, rustClientMethodName} from './emit/rust';
 export {emitDdbToolboxProgram} from './emit/ddbtoolbox';
 
 export type {ProgramResult, QueryProgramFormat, QueryToolConfig} from './program';

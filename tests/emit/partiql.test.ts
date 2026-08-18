@@ -392,3 +392,19 @@ describe('emitPartiql — honest degradation (reason asserted per case)', () => 
     expectNotExpressible({operation: 'GetItem', tableName: 'T'}, 'primary key');
   });
 });
+
+describe('not_contains', () => {
+  it('emits NOT contains(...) in the WHERE clause', () => {
+    const result = emitPartiql(
+      buildRequest({
+        operation: 'Scan',
+        tableName: 'users',
+        filters: [{field: 'name', operator: 'not_contains', type: 'S', value: 'bot'}]
+      })
+    );
+    expect(result).toEqual({
+      ok: true,
+      statement: `SELECT *\nFROM "users"\nWHERE NOT contains("name", 'bot')`
+    });
+  });
+});

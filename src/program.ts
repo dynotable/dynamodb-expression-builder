@@ -32,6 +32,7 @@ import {
 } from './emit/go';
 import {dotnetClientMethodName, renderCsAvMap, renderCsRequest} from './emit/dotnet';
 import {emitDdbToolboxProgram} from './emit/ddbtoolbox';
+import {renderRustBuilder, rustUsesAttributeValue, rustUsesBlob} from './emit/rust';
 import type {BuilderConfig, CanonicalRequest} from './types';
 
 /**
@@ -45,7 +46,7 @@ export interface QueryToolConfig extends BuilderConfig {
 }
 
 export type QueryProgramFormat =
-  'sdk' | 'cli' | 'boto3' | 'partiql' | 'java' | 'go' | 'dotnet' | 'ddbtoolbox';
+  'sdk' | 'cli' | 'boto3' | 'partiql' | 'java' | 'go' | 'dotnet' | 'rust' | 'ddbtoolbox';
 
 /** A runnable program, or an honest reason the format can't express it. */
 export type ProgramResult = {ok: true; code: string} | {ok: false; reason: string};
@@ -82,6 +83,8 @@ export function emitQueryProgram(
       return {ok: true, code: emitGoProgram(request, config.paginate === true)};
     case 'dotnet':
       return {ok: true, code: emitDotnetProgram(request, config.paginate === true)};
+    case 'rust':
+      return {ok: true, code: emitRustProgram(request, config.paginate === true)};
     case 'ddbtoolbox':
       return {ok: true, code: emitDdbToolboxProgram(request, config.paginate === true)};
   }
@@ -330,6 +333,61 @@ function emitGoProgram(request: CanonicalRequest, paginate: boolean): string {
     '\t\titems = append(items, page.Items...)',
     '\t}',
     '\tfmt.Println(items)',
+    '}'
+  ].join('\n');
+}
+
+// ── Rust (aws-sdk-dynamodb) ─────────────────────────────────────────────────
+
+function emitRustProgram(request: CanonicalRequest, paginate: boolean): string {
+  const usesAv = rustUsesAttributeValue(request);
+  const usesBlob = rustUsesBlob(request);
+  const imports = [
+    '// Cargo.toml: aws-config, aws-sdk-dynamodb, tokio (features = ["full"])',
+    'use aws_sdk_dynamodb::Client;',
+    ...(usesAv ? ['use aws_sdk_dynamodb::types::AttributeValue;'] : []),
+    ...(usesBlob ? ['use aws_sdk_dynamodb::primitives::Blob;'] : [])
+  ];
+  const header = [
+    ...imports,
+    '',
+    '#[tokio::main]',
+    'async fn main() -> Result<(), aws_sdk_dynamodb::Error> {',
+    '    let config = aws_config::load_from_env().await;',
+    '    let client = Client::new(&config);',
+    ''
+  ];
+  const builder = renderRustBuilder(request, '        ');
+
+  if (!paginate) {
+    return [
+      ...header,
+      '    let response = client',
+      ...builder,
+      '        .send()',
+      '        .await?;',
+      '    println!("{:?}", response.items());',
+      '',
+      '    Ok(())',
+      '}'
+    ].join('\n');
+  }
+
+  // `into_paginator().items()` follows LastEvaluatedKey itself, starting from
+  // the builder's ExclusiveStartKey when one is configured.
+  return [
+    ...header,
+    '    let mut items = client',
+    ...builder,
+    '        .into_paginator()',
+    '        .items()',
+    '        .send();',
+    '',
+    '    while let Some(item) = items.next().await {',
+    '        println!("{:?}", item?);',
+    '    }',
+    '',
+    '    Ok(())',
     '}'
   ].join('\n');
 }
