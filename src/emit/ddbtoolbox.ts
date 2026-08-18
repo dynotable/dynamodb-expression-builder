@@ -106,6 +106,7 @@ function renderCondition(f: FilterRow): string {
   if (f.operator === 'exists') return `{ attr: ${attr}, exists: true }`;
   if (f.operator === 'not_exists') return `{ attr: ${attr}, exists: false }`;
   if (f.operator === 'contains') return `{ attr: ${attr}, contains: ${val()} }`;
+  if (f.operator === 'not_contains') return `{ not: { attr: ${attr}, contains: ${val()} } }`;
   if (f.operator === 'begins_with') return `{ attr: ${attr}, beginsWith: ${val()} }`;
   if (f.operator === 'between') {
     const lo = renderNativeValue(scalar(f.type, f.value));

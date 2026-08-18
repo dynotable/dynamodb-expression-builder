@@ -127,6 +127,8 @@ function predicate(row: FilterRow): string {
       // Scalar operand even on a set attribute — marshal the element type so a
       // set tag yields a quotable scalar literal, not an inexpressible set.
       return `contains(${id}, ${literal(makeTypedValue(elementType(row.type), row.value))})`;
+    case 'NOT_CONTAINS':
+      return `NOT contains(${id}, ${literal(makeTypedValue(elementType(row.type), row.value))})`;
     case 'IN': {
       // An empty member list is rejected upstream in buildRequest
       // (filter-expressions throws) before PartiQL ever runs, so `members` is

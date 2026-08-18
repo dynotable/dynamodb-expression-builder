@@ -82,6 +82,11 @@ function buildOne(
       // conflates type tags, so normalise here (departure beyond (c) above).
       typedValues[valueRef] = makeTypedValue(elementType(row.type), row.value);
       return `contains(${nameRef}, ${valueRef})`;
+    case 'NOT_CONTAINS':
+      // Same scalar-operand rule as CONTAINS; DynamoDB has no not_contains
+      // function, so the wire form is the negated function call.
+      typedValues[valueRef] = makeTypedValue(elementType(row.type), row.value);
+      return `NOT contains(${nameRef}, ${valueRef})`;
     case 'BEGINS_WITH':
       typedValues[valueRef] = single(row);
       return `begins_with(${nameRef}, ${valueRef})`;

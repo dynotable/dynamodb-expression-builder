@@ -158,3 +158,14 @@ describe('prefix namespacing — filter vs cond never collide', () => {
     });
   });
 });
+
+describe('not_contains — the negated function call', () => {
+  it('compiles to NOT contains(...) with the scalar element-type operand', () => {
+    const result = buildFilterExpressions(
+      [{field: 'tags', operator: 'not_contains', type: 'SS', value: 'legacy'}],
+      'filter'
+    );
+    expect(result?.expression).toBe('NOT contains(#filter0, :filterValue0)');
+    expect(result?.typedValues[':filterValue0']).toEqual({type: 'S', value: 'legacy'});
+  });
+});

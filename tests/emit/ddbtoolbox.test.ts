@@ -118,3 +118,17 @@ describe('range key conditions', () => {
     );
   });
 });
+
+describe('not_contains', () => {
+  it('renders the negated contains condition', () => {
+    const out = emitDdbToolboxProgram(
+      buildRequest({
+        operation: 'Scan',
+        tableName: 'users',
+        filters: [{field: 'name', operator: 'not_contains', type: 'S', value: 'bot'}]
+      }),
+      false
+    );
+    expect(out).toContain(`{ not: { attr: "name", contains: "bot" } }`);
+  });
+});
