@@ -33,6 +33,10 @@ import {
 import {dotnetClientMethodName, renderCsAvMap, renderCsRequest} from './emit/dotnet';
 import {emitDdbToolboxProgram} from './emit/ddbtoolbox';
 import {renderRustBuilder, rustUsesAttributeValue, rustUsesBlob} from './emit/rust';
+import {docClientCommandName, renderDocClientParams} from './emit/docclient';
+import {kotlinClientMethodName, renderKotlinBuilder} from './emit/kotlin';
+import {phpClientMethodName, renderPhpParams} from './emit/php';
+import {renderRubyParams, rubyClientMethodName} from './emit/ruby';
 import type {BuilderConfig, CanonicalRequest} from './types';
 
 /**
@@ -46,7 +50,19 @@ export interface QueryToolConfig extends BuilderConfig {
 }
 
 export type QueryProgramFormat =
-  'sdk' | 'cli' | 'boto3' | 'partiql' | 'java' | 'go' | 'dotnet' | 'rust' | 'ddbtoolbox';
+  | 'sdk'
+  | 'docclient'
+  | 'cli'
+  | 'boto3'
+  | 'partiql'
+  | 'java'
+  | 'go'
+  | 'dotnet'
+  | 'rust'
+  | 'kotlin'
+  | 'php'
+  | 'ruby'
+  | 'ddbtoolbox';
 
 /** A runnable program, or an honest reason the format can't express it. */
 export type ProgramResult = {ok: true; code: string} | {ok: false; reason: string};
@@ -85,6 +101,14 @@ export function emitQueryProgram(
       return {ok: true, code: emitDotnetProgram(request, config.paginate === true)};
     case 'rust':
       return {ok: true, code: emitRustProgram(request, config.paginate === true)};
+    case 'docclient':
+      return {ok: true, code: emitDocClientProgram(request, config.paginate === true)};
+    case 'kotlin':
+      return {ok: true, code: emitKotlinProgram(request, config.paginate === true)};
+    case 'php':
+      return {ok: true, code: emitPhpProgram(request, config.paginate === true)};
+    case 'ruby':
+      return {ok: true, code: emitRubyProgram(request, config.paginate === true)};
     case 'ddbtoolbox':
       return {ok: true, code: emitDdbToolboxProgram(request, config.paginate === true)};
   }
@@ -389,6 +413,153 @@ function emitRustProgram(request: CanonicalRequest, paginate: boolean): string {
     '',
     '    Ok(())',
     '}'
+  ].join('\n');
+}
+
+// ── DocumentClient (@aws-sdk/lib-dynamodb) ──────────────────────────────────
+
+function emitDocClientProgram(request: CanonicalRequest, paginate: boolean): string {
+  const command = docClientCommandName(request.operation);
+  const params = renderDocClientParams(request, '');
+  if (!paginate) {
+    return [
+      'import { DynamoDBClient } from "@aws-sdk/client-dynamodb";',
+      `import { DynamoDBDocumentClient, ${command} } from "@aws-sdk/lib-dynamodb";`,
+      '',
+      'const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));',
+      '',
+      'const response = await client.send(',
+      `  new ${command}(${renderDocClientParams(request, '  ')})`,
+      ');',
+      '',
+      'console.log(response.Items);'
+    ].join('\n');
+  }
+  const paginator = request.operation === 'Scan' ? 'paginateScan' : 'paginateQuery';
+  return [
+    'import { DynamoDBClient } from "@aws-sdk/client-dynamodb";',
+    `import { DynamoDBDocumentClient, ${paginator} } from "@aws-sdk/lib-dynamodb";`,
+    '',
+    'const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));',
+    '',
+    `const paginator = ${paginator}(`,
+    '  { client },',
+    `  ${renderDocClientParams(request, '  ')}`,
+    ');',
+    '',
+    'for await (const page of paginator) {',
+    '  console.log(page.Items);',
+    '}'
+  ].join('\n');
+}
+
+// ── Kotlin (aws-sdk-kotlin) ─────────────────────────────────────────────────
+
+function emitKotlinProgram(request: CanonicalRequest, paginate: boolean): string {
+  const method = kotlinClientMethodName(request.operation);
+  const header = [
+    'import aws.sdk.kotlin.services.dynamodb.DynamoDbClient',
+    'import aws.sdk.kotlin.services.dynamodb.model.AttributeValue',
+    ...(paginate
+      ? [
+          `import aws.sdk.kotlin.services.dynamodb.paginators.${method}Paginated`,
+          'import aws.sdk.kotlin.services.dynamodb.paginators.items',
+          'import kotlinx.coroutines.flow.collect'
+        ]
+      : []),
+    '',
+    'suspend fun main() {',
+    '    DynamoDbClient.fromEnvironment().use { client ->'
+  ];
+  const body = renderKotlinBuilder(request, '            ');
+  if (!paginate) {
+    return [
+      ...header,
+      `        val response = client.${method} {`,
+      ...body,
+      '        }',
+      '        println(response.items)',
+      '    }',
+      '}'
+    ].join('\n');
+  }
+  return [
+    ...header,
+    `        client.${method}Paginated {`,
+    ...body,
+    '        }',
+    '            .items()',
+    '            .collect { item -> println(item) }',
+    '    }',
+    '}'
+  ].join('\n');
+}
+
+// ── PHP (aws-sdk-php) ───────────────────────────────────────────────────────
+
+function emitPhpProgram(request: CanonicalRequest, paginate: boolean): string {
+  const method = phpClientMethodName(request.operation);
+  const header = [
+    '<?php',
+    '',
+    "require 'vendor/autoload.php';",
+    '',
+    'use Aws\\DynamoDb\\DynamoDbClient;',
+    '',
+    "$client = new DynamoDbClient(['region' => 'us-east-1', 'version' => 'latest']);",
+    ''
+  ];
+  if (!paginate) {
+    return [
+      ...header,
+      `$response = $client->${method}(${renderPhpParams(request, '')});`,
+      '',
+      "print_r($response['Items']);"
+    ].join('\n');
+  }
+  // getPaginator follows LastEvaluatedKey itself; the operation name is the
+  // API operation (PascalCase), not the client method.
+  const operation = request.operation === 'Scan' ? 'Scan' : 'Query';
+  return [
+    ...header,
+    `$pages = $client->getPaginator('${operation}', ${renderPhpParams(request, '')});`,
+    '',
+    'foreach ($pages as $page) {',
+    "    print_r($page['Items']);",
+    '}'
+  ].join('\n');
+}
+
+// ── Ruby (aws-sdk-dynamodb v3) ──────────────────────────────────────────────
+
+function emitRubyProgram(request: CanonicalRequest, paginate: boolean): string {
+  const method = rubyClientMethodName(request.operation);
+  const usesSets = /Set\.new\(/.test(renderRubyParams(request, ''));
+  const usesBase64 = /Base64\.decode64\(/.test(renderRubyParams(request, ''));
+  const header = [
+    "require 'aws-sdk-dynamodb'",
+    ...(usesSets ? ["require 'set'"] : []),
+    ...(usesBase64 ? ["require 'base64'"] : []),
+    '',
+    'client = Aws::DynamoDB::Client.new',
+    ''
+  ];
+  if (!paginate) {
+    return [
+      ...header,
+      `response = client.${method}(${renderRubyParams(request, '')})`,
+      '',
+      'puts response.items'
+    ].join('\n');
+  }
+  // The Ruby SDK's response is pageable: `.each` follows LastEvaluatedKey.
+  return [
+    ...header,
+    `response = client.${method}(${renderRubyParams(request, '')})`,
+    '',
+    'response.each do |page|',
+    '  puts page.items',
+    'end'
   ].join('\n');
 }
 
