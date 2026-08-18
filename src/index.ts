@@ -66,6 +66,10 @@ export {emitJava, javaClientMethodName, javaRequestClassName} from './emit/java'
 export {emitGo, goClientMethodName, goInputTypeName} from './emit/go';
 export {dotnetClientMethodName, dotnetRequestClassName, emitDotnet} from './emit/dotnet';
 export {emitRust, renderRustAv, rustClientMethodName} from './emit/rust';
+export {docClientCommandName, emitDocClient} from './emit/docclient';
+export {emitKotlin, kotlinClientMethodName, renderKotlinAv} from './emit/kotlin';
+export {emitPhp, phpClientMethodName, renderPhpAv} from './emit/php';
+export {emitRuby, renderRubyValue, rubyClientMethodName} from './emit/ruby';
 export {emitDdbToolboxProgram} from './emit/ddbtoolbox';
 
 export type {ProgramResult, QueryProgramFormat, QueryToolConfig} from './program';
