@@ -32,8 +32,13 @@ function avJson(map: Record<string, unknown>): string {
   return JSON.stringify(map);
 }
 
-/** Emit the multi-line `aws dynamodb <op>` command for a canonical request. */
-export function emitCli(request: CanonicalRequest): string {
+/**
+ * Emit the multi-line `aws dynamodb <op>` command for a canonical request.
+ * @param request The canonical request.
+ * @param region Pin the command to this region via the global `--region` flag.
+ *   Omitted leaves the CLI to resolve it from the profile/environment.
+ */
+export function emitCli(request: CanonicalRequest, region?: string): string {
   // Value-less boolean flags carry `null`.
   const flags: Array<[string, string | null]> = [['--table-name', request.tableName]];
   if (request.indexName) flags.push(['--index-name', request.indexName]);
@@ -59,6 +64,9 @@ export function emitCli(request: CanonicalRequest): string {
   if (request.consistentRead) flags.push(['--consistent-read', null]);
   if (request.scanIndexForward === false) flags.push(['--no-scan-index-forward', null]);
   if (request.limit !== undefined) flags.push(['--page-size', String(request.limit)]);
+  // `--region` is a GLOBAL CLI option, so it sits after the operation's own
+  // flags rather than among them.
+  if (region !== undefined) flags.push(['--region', region]);
 
   const comments = request.exclusiveStartKey
     ? [
