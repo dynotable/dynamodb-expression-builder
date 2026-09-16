@@ -18,6 +18,7 @@
 // `config.baseKeySchema` when the caller supplied the table's real schema, and
 // falls back to a placeholder base key with a `// TODO` only when it didn't.
 
+import {jsClientOptions} from './client-init';
 import type {OperatorValue} from '../operators';
 import type {
   BuilderConfig,
@@ -259,8 +260,14 @@ function renderOptions(config: BuilderConfig, paginate: boolean): string {
  * Emit the runnable dynamodb-toolbox program for a Query/Scan canonical request.
  * `paginate` wraps the send in a `LastEvaluatedKey` loop (dynamodb-toolbox's
  * `send()` returns `{ Items, LastEvaluatedKey }` and takes `exclusiveStartKey`).
+ * `region` pins the underlying `DynamoDBClient`; omitted, it resolves from the
+ * environment.
  */
-export function emitDdbToolboxProgram(request: CanonicalRequest, paginate: boolean): string {
+export function emitDdbToolboxProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const config = request.config;
   const isQuery = config.operation === 'Query';
   const command = isQuery ? 'QueryCommand' : 'ScanCommand';
@@ -274,7 +281,7 @@ export function emitDdbToolboxProgram(request: CanonicalRequest, paginate: boole
     `import { Table } from "dynamodb-toolbox/table";`,
     `import { ${command} } from ${commandPath};`,
     '',
-    'const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));',
+    `const documentClient = DynamoDBDocumentClient.from(new DynamoDBClient(${jsClientOptions(region)}));`,
     '',
     renderTable(config),
     ''
