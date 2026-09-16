@@ -68,6 +68,8 @@ SET idioms are first-class: `assign`, `if_not_exists`, atomic counters (`add`/`s
 
 And `emitQueryProgram(config, format)` wraps a Query/Scan request into a complete runnable program — client setup, the request, and a `LastEvaluatedKey` pagination loop — with `format` one of `'sdk' | 'docclient' | 'cli' | 'boto3' | 'partiql' | 'java' | 'go' | 'dotnet' | 'rust' | 'kotlin' | 'php' | 'ruby' | 'ddbtoolbox'` — each paginated program uses its SDK's own idiom (`paginateQuery`, `into_paginator()`, `queryPaginated` flows, `getPaginator`, pageable responses).
 
+Set `config.region` and the emitted client is pinned to that region in each target's own way — `new DynamoDBClient({ region })`, `boto3.client("dynamodb", region_name=…)`, `DynamoDbClient.builder().region(Region.of(…))`, `config.WithRegion(…)`, `RegionEndpoint.GetBySystemName(…)`, `Region::new(…)`, `fromEnvironment { region = … }`, `--region` — so a pasted snippet runs where the data actually is instead of wherever `AWS_REGION` happens to point. Leave it unset and every program keeps its environment-resolved client init. PartiQL is the exception: the statement is SQL text with no client, so the region is dropped rather than faked.
+
 ## API
 
 Three layers, each usable on its own:

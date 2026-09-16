@@ -18,6 +18,7 @@ import {emitPartiql} from './emit/partiql';
 import {boto3MethodName, renderPyValue} from './emit/boto3';
 import {buildSdkV3Params, renderJsValue, sdkV3CommandName} from './emit/sdk-v3';
 import {hasBinaryValue} from './emit/marshal';
+import {jsClientOptions, singleQuoted} from './emit/client-init';
 import {
   javaClientMethodName,
   javaRequestClassName,
@@ -47,6 +48,20 @@ import type {BuilderConfig, CanonicalRequest} from './types';
 export interface QueryToolConfig extends BuilderConfig {
   /** Emit the fetch-all-pages pagination loop (default: single request). */
   paginate?: boolean;
+  /**
+   * Pin the emitted client to this AWS region (e.g. `'eu-west-1'`). A caller
+   * that already KNOWS which region the rows came from should emit code that
+   * runs against THAT region, not against whatever `AWS_REGION` the reader's
+   * shell happens to carry — a snippet that silently queries the wrong account's
+   * copy of a table is the failure this closes.
+   *
+   * Omitted (the stateless builder, which never knew a region) keeps every
+   * target's environment-resolved client init verbatim, so this is additive.
+   *
+   * PartiQL is the one target it cannot reach: the statement is SQL text with
+   * no client to configure. The region is dropped there, not faked.
+   */
+  region?: string;
 }
 
 export type QueryProgramFormat =
@@ -84,44 +99,48 @@ export function emitQueryProgram(
   const request = buildRequest(config);
   switch (format) {
     case 'sdk':
-      return {ok: true, code: emitSdkProgram(request, config.paginate === true)};
+      return {ok: true, code: emitSdkProgram(request, config.paginate === true, config.region)};
     case 'cli':
-      return {ok: true, code: emitCliProgram(request, config.paginate === true)};
+      return {ok: true, code: emitCliProgram(request, config.paginate === true, config.region)};
     case 'boto3':
-      return {ok: true, code: emitBoto3Program(request, config.paginate === true)};
+      return {ok: true, code: emitBoto3Program(request, config.paginate === true, config.region)};
     case 'partiql': {
       const result = emitPartiql(request);
       return result.ok ? {ok: true, code: result.statement} : result;
     }
     case 'java':
-      return {ok: true, code: emitJavaProgram(request, config.paginate === true)};
+      return {ok: true, code: emitJavaProgram(request, config.paginate === true, config.region)};
     case 'go':
-      return {ok: true, code: emitGoProgram(request, config.paginate === true)};
+      return {ok: true, code: emitGoProgram(request, config.paginate === true, config.region)};
     case 'dotnet':
-      return {ok: true, code: emitDotnetProgram(request, config.paginate === true)};
+      return {ok: true, code: emitDotnetProgram(request, config.paginate === true, config.region)};
     case 'rust':
-      return {ok: true, code: emitRustProgram(request, config.paginate === true)};
+      return {ok: true, code: emitRustProgram(request, config.paginate === true, config.region)};
     case 'docclient':
-      return {ok: true, code: emitDocClientProgram(request, config.paginate === true)};
+      return {ok: true, code: emitDocClientProgram(request, config.paginate === true, config.region)};
     case 'kotlin':
-      return {ok: true, code: emitKotlinProgram(request, config.paginate === true)};
+      return {ok: true, code: emitKotlinProgram(request, config.paginate === true, config.region)};
     case 'php':
-      return {ok: true, code: emitPhpProgram(request, config.paginate === true)};
+      return {ok: true, code: emitPhpProgram(request, config.paginate === true, config.region)};
     case 'ruby':
-      return {ok: true, code: emitRubyProgram(request, config.paginate === true)};
+      return {ok: true, code: emitRubyProgram(request, config.paginate === true, config.region)};
     case 'ddbtoolbox':
-      return {ok: true, code: emitDdbToolboxProgram(request, config.paginate === true)};
+      return {ok: true, code: emitDdbToolboxProgram(request, config.paginate === true, config.region)};
   }
 }
 
 // ── AWS SDK v3 ──────────────────────────────────────────────────────────────
 
-function emitSdkProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitSdkProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const command = sdkV3CommandName(request.operation);
   const header = [
     `import { DynamoDBClient, ${command} } from "@aws-sdk/client-dynamodb";`,
     '',
-    'const client = new DynamoDBClient({});',
+    `const client = new DynamoDBClient(${jsClientOptions(region)});`,
     ''
   ];
 
@@ -162,8 +181,12 @@ function emitSdkProgram(request: CanonicalRequest, paginate: boolean): string {
 
 // ── AWS CLI ─────────────────────────────────────────────────────────────────
 
-function emitCliProgram(request: CanonicalRequest, paginate: boolean): string {
-  const command = emitCli(request);
+function emitCliProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
+  const command = emitCli(request, region);
   if (paginate) {
     // Fetch-all is the CLI's DEFAULT: it follows LastEvaluatedKey itself and
     // merges the pages, so the loop the SDK programs spell out is implicit.
@@ -178,14 +201,21 @@ function emitCliProgram(request: CanonicalRequest, paginate: boolean): string {
 
 // ── boto3 ───────────────────────────────────────────────────────────────────
 
-function emitBoto3Program(request: CanonicalRequest, paginate: boolean): string {
+function emitBoto3Program(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const method = boto3MethodName(request.operation);
   const params = buildSdkV3Params(request);
   const imports = hasBinaryValue(request) ? ['import base64', 'import boto3'] : ['import boto3'];
   const paramLines = Object.entries(params).map(
     ([key, value]) => `    ${JSON.stringify(key)}: ${renderPyValue(value)},`
   );
-  const header = [...imports, '', 'client = boto3.client("dynamodb")', ''];
+  // boto3 takes the region as a client kwarg; JSON's double-quoted string is
+  // also a Python string literal.
+  const regionArg = region === undefined ? '' : `, region_name=${JSON.stringify(region)}`;
+  const header = [...imports, '', `client = boto3.client("dynamodb"${regionArg})`, ''];
 
   if (!paginate) {
     return [
@@ -223,7 +253,11 @@ function emitBoto3Program(request: CanonicalRequest, paginate: boolean): string 
 
 // ── Java (AWS SDK for Java v2) ──────────────────────────────────────────────
 
-function emitJavaProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitJavaProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const requestClass = javaRequestClassName(request.operation);
   const responseClass = requestClass.replace(/Request$/, 'Response');
   const method = javaClientMethodName(request.operation);
@@ -242,6 +276,8 @@ function emitJavaProgram(request: CanonicalRequest, paginate: boolean): string {
   ];
   const sdk = [
     ...(binary ? ['software.amazon.awssdk.core.SdkBytes'] : []),
+    // `regions` sorts before `services`, keeping the import block ordered.
+    ...(region !== undefined ? ['software.amazon.awssdk.regions.Region'] : []),
     'software.amazon.awssdk.services.dynamodb.DynamoDbClient',
     ...(usesAvMap ? ['software.amazon.awssdk.services.dynamodb.model.AttributeValue'] : []),
     `software.amazon.awssdk.services.dynamodb.model.${requestClass}`,
@@ -252,7 +288,11 @@ function emitJavaProgram(request: CanonicalRequest, paginate: boolean): string {
     '',
     'public class Main {',
     '    public static void main(String[] args) {',
-    '        DynamoDbClient client = DynamoDbClient.create();',
+    // `Region.of` takes any region id, where the `Region.US_EAST_1` constants
+    // only cover the ones that shipped with the SDK build.
+    region === undefined
+      ? '        DynamoDbClient client = DynamoDbClient.create();'
+      : `        DynamoDbClient client = DynamoDbClient.builder().region(Region.of(${JSON.stringify(region)})).build();`,
     ''
   ];
   const footer = ['    }', '}'];
@@ -296,7 +336,11 @@ function emitJavaProgram(request: CanonicalRequest, paginate: boolean): string {
 
 // ── Go (aws-sdk-go-v2) ──────────────────────────────────────────────────────
 
-function emitGoProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitGoProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const inputType = goInputTypeName(request.operation);
   const method = goClientMethodName(request.operation);
   // The paginator accumulator is typed map[string]types.AttributeValue, so
@@ -320,7 +364,9 @@ function emitGoProgram(request: CanonicalRequest, paginate: boolean): string {
     ')',
     '',
     'func main() {',
-    '\tcfg, err := config.LoadDefaultConfig(context.TODO())',
+    region === undefined
+      ? '\tcfg, err := config.LoadDefaultConfig(context.TODO())'
+      : `\tcfg, err := config.LoadDefaultConfig(context.TODO(), config.WithRegion(${JSON.stringify(region)}))`,
     '\tif err != nil {',
     '\t\tlog.Fatal(err)',
     '\t}',
@@ -363,12 +409,17 @@ function emitGoProgram(request: CanonicalRequest, paginate: boolean): string {
 
 // ── Rust (aws-sdk-dynamodb) ─────────────────────────────────────────────────
 
-function emitRustProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitRustProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const usesAv = rustUsesAttributeValue(request);
   const usesBlob = rustUsesBlob(request);
   const imports = [
     '// Cargo.toml: aws-config, aws-sdk-dynamodb, tokio (features = ["full"])',
     'use aws_sdk_dynamodb::Client;',
+    ...(region !== undefined ? ['use aws_sdk_dynamodb::config::Region;'] : []),
     ...(usesAv ? ['use aws_sdk_dynamodb::types::AttributeValue;'] : []),
     ...(usesBlob ? ['use aws_sdk_dynamodb::primitives::Blob;'] : [])
   ];
@@ -377,7 +428,16 @@ function emitRustProgram(request: CanonicalRequest, paginate: boolean): string {
     '',
     '#[tokio::main]',
     'async fn main() -> Result<(), aws_sdk_dynamodb::Error> {',
-    '    let config = aws_config::load_from_env().await;',
+    // `from_env()` is the builder form of the `load_from_env()` shorthand used
+    // when no region is pinned — same vintage, one extra call.
+    ...(region === undefined
+      ? ['    let config = aws_config::load_from_env().await;']
+      : [
+          '    let config = aws_config::from_env()',
+          `        .region(Region::new(${JSON.stringify(region)}))`,
+          '        .load()',
+          '        .await;'
+        ]),
     '    let client = Client::new(&config);',
     ''
   ];
@@ -418,14 +478,19 @@ function emitRustProgram(request: CanonicalRequest, paginate: boolean): string {
 
 // ── DocumentClient (@aws-sdk/lib-dynamodb) ──────────────────────────────────
 
-function emitDocClientProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitDocClientProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const command = docClientCommandName(request.operation);
+  const clientLine = `const client = DynamoDBDocumentClient.from(new DynamoDBClient(${jsClientOptions(region)}));`;
   if (!paginate) {
     return [
       'import { DynamoDBClient } from "@aws-sdk/client-dynamodb";',
       `import { DynamoDBDocumentClient, ${command} } from "@aws-sdk/lib-dynamodb";`,
       '',
-      'const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));',
+      clientLine,
       '',
       'const response = await client.send(',
       `  new ${command}(${renderDocClientParams(request, '  ')})`,
@@ -439,7 +504,7 @@ function emitDocClientProgram(request: CanonicalRequest, paginate: boolean): str
     'import { DynamoDBClient } from "@aws-sdk/client-dynamodb";',
     `import { DynamoDBDocumentClient, ${paginator} } from "@aws-sdk/lib-dynamodb";`,
     '',
-    'const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));',
+    clientLine,
     '',
     `const paginator = ${paginator}(`,
     '  { client },',
@@ -454,8 +519,17 @@ function emitDocClientProgram(request: CanonicalRequest, paginate: boolean): str
 
 // ── Kotlin (aws-sdk-kotlin) ─────────────────────────────────────────────────
 
-function emitKotlinProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitKotlinProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const method = kotlinClientMethodName(request.operation);
+  // `fromEnvironment` takes a config block that overrides what it resolved.
+  const fromEnv =
+    region === undefined
+      ? 'DynamoDbClient.fromEnvironment()'
+      : `DynamoDbClient.fromEnvironment { region = ${JSON.stringify(region)} }`;
   const header = [
     'import aws.sdk.kotlin.services.dynamodb.DynamoDbClient',
     'import aws.sdk.kotlin.services.dynamodb.model.AttributeValue',
@@ -468,7 +542,7 @@ function emitKotlinProgram(request: CanonicalRequest, paginate: boolean): string
       : []),
     '',
     'suspend fun main() {',
-    '    DynamoDbClient.fromEnvironment().use { client ->'
+    `    ${fromEnv}.use { client ->`
   ];
   const body = renderKotlinBuilder(request, '            ');
   if (!paginate) {
@@ -496,7 +570,11 @@ function emitKotlinProgram(request: CanonicalRequest, paginate: boolean): string
 
 // ── PHP (aws-sdk-php) ───────────────────────────────────────────────────────
 
-function emitPhpProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitPhpProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const method = phpClientMethodName(request.operation);
   const header = [
     '<?php',
@@ -505,7 +583,9 @@ function emitPhpProgram(request: CanonicalRequest, paginate: boolean): string {
     '',
     'use Aws\\DynamoDb\\DynamoDbClient;',
     '',
-    "$client = new DynamoDbClient(['region' => 'us-east-1', 'version' => 'latest']);",
+    // aws-sdk-php REQUIRES a region at construction, so this line always
+    // carries one — a known region replaces the placeholder default.
+    `$client = new DynamoDbClient(['region' => ${singleQuoted(region ?? 'us-east-1')}, 'version' => 'latest']);`,
     ''
   ];
   if (!paginate) {
@@ -531,7 +611,11 @@ function emitPhpProgram(request: CanonicalRequest, paginate: boolean): string {
 
 // ── Ruby (aws-sdk-dynamodb v3) ──────────────────────────────────────────────
 
-function emitRubyProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitRubyProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const method = rubyClientMethodName(request.operation);
   const usesSets = /Set\.new\(/.test(renderRubyParams(request, ''));
   const usesBase64 = /Base64\.decode64\(/.test(renderRubyParams(request, ''));
@@ -540,7 +624,9 @@ function emitRubyProgram(request: CanonicalRequest, paginate: boolean): string {
     ...(usesSets ? ["require 'set'"] : []),
     ...(usesBase64 ? ["require 'base64'"] : []),
     '',
-    'client = Aws::DynamoDB::Client.new',
+    region === undefined
+      ? 'client = Aws::DynamoDB::Client.new'
+      : `client = Aws::DynamoDB::Client.new(region: ${singleQuoted(region)})`,
     ''
   ];
   if (!paginate) {
@@ -564,7 +650,11 @@ function emitRubyProgram(request: CanonicalRequest, paginate: boolean): string {
 
 // ── .NET (AWSSDK.DynamoDBv2) ────────────────────────────────────────────────
 
-function emitDotnetProgram(request: CanonicalRequest, paginate: boolean): string {
+function emitDotnetProgram(
+  request: CanonicalRequest,
+  paginate: boolean,
+  region?: string
+): string {
   const method = dotnetClientMethodName(request.operation);
   const binary = hasBinaryValue(request);
   // Dictionary/List appear for any map field, and always in the paginate loop.
@@ -578,10 +668,16 @@ function emitDotnetProgram(request: CanonicalRequest, paginate: boolean): string
     'using System;',
     ...(usesCollections ? ['using System.Collections.Generic;'] : []),
     ...(binary ? ['using System.IO;'] : []),
+    // RegionEndpoint lives in the root Amazon namespace.
+    ...(region !== undefined ? ['using Amazon;'] : []),
     'using Amazon.DynamoDBv2;',
     'using Amazon.DynamoDBv2.Model;',
     '',
-    'var client = new AmazonDynamoDBClient();',
+    // `GetBySystemName` takes any region id, where the `RegionEndpoint.USEast1`
+    // fields only cover the ones that shipped with the SDK build.
+    region === undefined
+      ? 'var client = new AmazonDynamoDBClient();'
+      : `var client = new AmazonDynamoDBClient(RegionEndpoint.GetBySystemName(${JSON.stringify(region)}));`,
     ''
   ];
 
